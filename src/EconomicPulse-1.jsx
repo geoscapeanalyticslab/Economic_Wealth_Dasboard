@@ -558,24 +558,40 @@ function VectorMap({ view, setView, shape, setShape, tool, setTool, activity, ho
     zoomTo(view.zoom + 1, { x: e.clientX - r.left, y: e.clientY - r.top }, true);
   };
 
-  /* ── raster tiles for non-vector basemaps ── */
+  /* ── raster tiles for non-vector basemaps ──
+     Smoothness: (1) a 1-tile prefetch margin so panning never reveals blank edges,
+     (2) each tile fades in on load instead of popping,
+     (3) a coarse lower-zoom layer sits underneath so a zoom step never flashes blank. */
   let tileImgs = null, tileAttr = null;
   if (basemap !== "vector" && TILE_SOURCES[basemap]) {
     const srcT = TILE_SOURCES[basemap];
     tileAttr = srcT.attr;
+    const buildTiles = (tz, margin, fade) => {
+      const n = Math.pow(2, tz);
+      const tSize = world / n;
+      const tx0 = Math.floor((cx - size.w / 2) / tSize) - margin;
+      const tx1 = Math.floor((cx + size.w / 2) / tSize) + margin;
+      const ty0 = Math.max(0, Math.floor((cy - size.h / 2) / tSize) - margin);
+      const ty1 = Math.min(n - 1, Math.floor((cy + size.h / 2) / tSize) + margin);
+      const imgs = [];
+      for (let tx = tx0; tx <= tx1; tx++) for (let ty = ty0; ty <= ty1; ty++) {
+        const wx = ((tx % n) + n) % n;
+        imgs.push(<img key={tz + "/" + tx + "/" + ty} src={srcT.url(tz, wx, ty)} alt="" draggable={false}
+          decoding="async"
+          style={{ position: "absolute", left: tx * tSize - cx + size.w / 2, top: ty * tSize - cy + size.h / 2,
+            width: tSize + 1, height: tSize + 1, userSelect: "none",
+            animation: fade ? "tileIn .35s ease-out" : undefined }} />);
+      }
+      return imgs;
+    };
     const tz = Math.max(3, Math.min(19, Math.round(view.zoom)));
-    const n = Math.pow(2, tz);
-    const tSize = world / n;
-    const tx0 = Math.floor((cx - size.w / 2) / tSize), tx1 = Math.floor((cx + size.w / 2) / tSize);
-    const ty0 = Math.max(0, Math.floor((cy - size.h / 2) / tSize)), ty1 = Math.min(n - 1, Math.floor((cy + size.h / 2) / tSize));
-    const imgs = [];
-    for (let tx = tx0; tx <= tx1; tx++) for (let ty = ty0; ty <= ty1; ty++) {
-      const wx = ((tx % n) + n) % n;
-      imgs.push(<img key={tz + "/" + tx + "/" + ty} src={srcT.url(tz, wx, ty)} alt="" draggable={false}
-        style={{ position: "absolute", left: tx * tSize - cx + size.w / 2, top: ty * tSize - cy + size.h / 2,
-          width: tSize + 0.5, height: tSize + 0.5, userSelect: "none" }} />);
-    }
-    tileImgs = imgs;
+    const baseZ = Math.max(3, tz - 2);
+    tileImgs = (
+      <>
+        {baseZ !== tz && <div style={{ position: "absolute", inset: 0 }}>{buildTiles(baseZ, 0, false)}</div>}
+        {buildTiles(tz, 1, true)}
+      </>
+    );
   }
 
   /* ── VIIRS night-lights canvas overlay ── */
@@ -675,6 +691,7 @@ function VectorMap({ view, setView, shape, setShape, tool, setTool, activity, ho
   return (
     <div ref={wrapRef} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onDoubleClick={onDbl}
       style={{ position: "absolute", inset: 0, overflow: "hidden", background: "#0A101C", cursor, touchAction: "none", userSelect: "none", WebkitUserSelect: "none" }}>
+      <style>{"@keyframes tileIn{from{opacity:0}to{opacity:1}}"}</style>
       {tileImgs && (<>
         <div style={{ position: "absolute", inset: 0, opacity: 0.35, filter: "saturate(0.6) brightness(0.7)" }}>{tileImgs}</div>
         <div style={{ position: "absolute", inset: 0, clipPath: `polygon(${ringPts.map((p) => p.x.toFixed(0) + "px " + p.y.toFixed(0) + "px").join(",")})` }}>{tileImgs}</div>
